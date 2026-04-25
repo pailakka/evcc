@@ -62,7 +62,7 @@
 </template>
 
 <script lang="ts">
-import { defineComponent } from "vue";
+import { defineComponent, type PropType } from "vue";
 import formatter from "@/mixins/formatter";
 import type { PlanStrategy } from "./types";
 
@@ -71,6 +71,7 @@ export default defineComponent({
 	mixins: [formatter],
 	props: {
 		id: [String, Number],
+		strategy: Object as PropType<PlanStrategy>,
 		show: Boolean,
 		precondition: { type: Number, default: 0 },
 		continuous: { type: Boolean, default: false },
@@ -134,6 +135,7 @@ export default defineComponent({
 		},
 		updateStrategy(): void {
 			const strategy: PlanStrategy = {
+				...(this.strategy || {}),
 				continuous: this.localContinuous,
 				precondition: this.localPrecondition,
 			};
