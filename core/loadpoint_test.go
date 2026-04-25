@@ -131,6 +131,35 @@ func TestPlanStrategySettingsMigration(t *testing.T) {
 	assert.Equal(t, "keepalive", supportMode)
 }
 
+func TestConfigurablePlanStrategyCompatibilityFields(t *testing.T) {
+	payload := map[string]any{
+		"title":                    "Garage",
+		"planContribution":         0.25,
+		"planSupportMode":          "keepalive",
+		"planStrategy":             map[string]any{"continuous": true, "precondition": 900},
+		"batteryBoostLimit":        100,
+		"defaultMode":              "",
+		"phasesConfigured":         0,
+		"limitEnergy":              0,
+		"limitSoc":                 0,
+		"maxCurrent":               0,
+		"minCurrent":               0,
+		"planEnergy":               0,
+		"priority":                 0,
+		"smartCostLimit":           nil,
+		"smartFeedInPriorityLimit": nil,
+	}
+
+	dynamic, _, err := loadpoint.SplitConfig(payload)
+	assert.NoError(t, err)
+	if assert.NotNil(t, dynamic.PlanContribution_) {
+		assert.Equal(t, 0.25, *dynamic.PlanContribution_)
+	}
+	assert.Equal(t, "keepalive", dynamic.PlanSupportMode_)
+	assert.True(t, dynamic.PlanStrategy.Continuous)
+	assert.Equal(t, time.Duration(900), dynamic.PlanStrategy.Precondition)
+}
+
 func TestUpdatePowerZero(t *testing.T) {
 	tc := []struct {
 		status api.ChargeStatus
