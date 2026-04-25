@@ -23,6 +23,25 @@ const (
 
 type Null struct{}
 
+type featureCharger struct {
+	api.Charger
+	features []api.Feature
+}
+
+func (c featureCharger) Features() []api.Feature {
+	return c.features
+}
+
+type wakeupFeatureCharger struct {
+	featureCharger
+	wakeups int
+}
+
+func (c *wakeupFeatureCharger) WakeUp() error {
+	c.wakeups++
+	return nil
+}
+
 func (n *Null) CurrentPower() (float64, error) {
 	return 0, nil
 }
@@ -379,6 +398,225 @@ func TestPVHysteresisForStatusOtherThanC(t *testing.T) {
 	}
 
 	ctrl.Finish()
+}
+
+func TestPVVehicleLimiterKeepsChargerActive(t *testing.T) {
+	const phases = 3
+
+	voltage := Voltage
+	Voltage = 100
+	defer func() {
+		Voltage = voltage
+	}()
+
+	tc := []struct {
+		name            string
+		status          api.ChargeStatus
+		features        []api.Feature
+		vehicleSoc      float64
+		vehicleLimitSoc int
+		limitSoc        int
+		current         float64
+		hold            bool
+	}{
+		{
+			name:            "vehicle soc limit reached",
+			status:          api.StatusB,
+			vehicleSoc:      80,
+			vehicleLimitSoc: 80,
+			current:         minA,
+			hold:            true,
+		},
+		{
+			name:            "evcc limit remains binding",
+			status:          api.StatusB,
+			vehicleSoc:      80,
+			vehicleLimitSoc: 80,
+			limitSoc:        70,
+			current:         0,
+		},
+		{
+			name:     "vehicle control charger not charging",
+			status:   api.StatusB,
+			features: []api.Feature{api.VehicleControl},
+			current:  minA,
+			hold:     true,
+		},
+		{
+			name:    "normal pv disable unchanged",
+			status:  api.StatusC,
+			current: 0,
+		},
+	}
+
+	for _, tc := range tc {
+		t.Run(tc.name, func(t *testing.T) {
+			ctrl := gomock.NewController(t)
+			charger := api.NewMockCharger(ctrl)
+
+			var ch api.Charger = charger
+			if len(tc.features) > 0 {
+				ch = featureCharger{
+					Charger:  charger,
+					features: tc.features,
+				}
+			}
+
+			lp := &Loadpoint{
+				log:             util.NewLogger("foo"),
+				clock:           clock.NewMock(),
+				charger:         ch,
+				minCurrent:      minA,
+				maxCurrent:      maxA,
+				phases:          phases,
+				measuredPhases:  phases,
+				offeredCurrent:  minA,
+				status:          tc.status,
+				enabled:         true,
+				vehicleSoc:      tc.vehicleSoc,
+				vehicleLimitSoc: tc.vehicleLimitSoc,
+				limitSoc:        tc.limitSoc,
+				Disable: loadpoint.ThresholdConfig{
+					Delay: 0,
+				},
+			}
+
+			current := lp.pvMaxCurrent(api.ModePV, 500, 0, false, false)
+			assert.Equal(t, tc.current, current)
+			assert.Equal(t, tc.hold, lp.vehicleLimiterHold)
+		})
+	}
+}
+
+func TestPVVehicleControlDoesNotOverrideEvccLimit(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	charger := api.NewMockCharger(ctrl)
+	ch := featureCharger{
+		Charger:  charger,
+		features: []api.Feature{api.VehicleControl},
+	}
+
+	lp := &Loadpoint{
+		log:            util.NewLogger("foo"),
+		bus:            evbus.New(),
+		clock:          clock.NewMock(),
+		charger:        ch,
+		chargeMeter:    &Null{},
+		chargeRater:    &Null{},
+		chargeTimer:    &Null{},
+		wakeUpTimer:    NewTimer(),
+		minCurrent:     minA,
+		maxCurrent:     maxA,
+		phases:         1,
+		measuredPhases: 1,
+		offeredCurrent: minA,
+		status:         api.StatusB,
+		enabled:        true,
+		mode:           api.ModePV,
+		vehicleSoc:     70,
+		limitSoc:       70,
+	}
+
+	charger.EXPECT().Status().Return(api.StatusB, nil)
+	charger.EXPECT().Enabled().Return(true, nil)
+	charger.EXPECT().Enable(false).Return(nil)
+
+	lp.Update(500, 0, nil, nil, false, false, 0, nil, nil)
+
+	assert.False(t, lp.enabled)
+	assert.False(t, lp.vehicleLimiterHold)
+}
+
+func TestWakeUpSkippedDuringVehicleLimiterHold(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	charger := api.NewMockCharger(ctrl)
+	ch := &wakeupFeatureCharger{
+		featureCharger: featureCharger{
+			Charger:  charger,
+			features: []api.Feature{api.VehicleControl},
+		},
+	}
+
+	clck := clock.NewMock()
+	timer := NewTimer()
+	timer.clck = clck
+	timer.Start()
+	clck.Add(wakeupTimeout + time.Second)
+
+	lp := &Loadpoint{
+		log:            util.NewLogger("foo"),
+		bus:            evbus.New(),
+		clock:          clck,
+		charger:        ch,
+		chargeMeter:    &Null{},
+		chargeRater:    &Null{},
+		chargeTimer:    &Null{},
+		wakeUpTimer:    timer,
+		minCurrent:     minA,
+		maxCurrent:     maxA,
+		phases:         1,
+		measuredPhases: 1,
+		offeredCurrent: minA,
+		status:         api.StatusB,
+		enabled:        true,
+		mode:           api.ModePV,
+		vehicleSoc:     50,
+		Disable: loadpoint.ThresholdConfig{
+			Delay: 0,
+		},
+	}
+
+	charger.EXPECT().Status().Return(api.StatusB, nil)
+	charger.EXPECT().Enabled().Return(true, nil)
+
+	lp.Update(500, 0, nil, nil, false, false, 0, nil, nil)
+
+	assert.Equal(t, 0, ch.wakeups)
+	assert.True(t, lp.vehicleLimiterHold)
+}
+
+func TestWakeUpStillRunsWithoutVehicleLimiterHold(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	charger := api.NewMockCharger(ctrl)
+	ch := &wakeupFeatureCharger{
+		featureCharger: featureCharger{
+			Charger: charger,
+		},
+	}
+
+	clck := clock.NewMock()
+	timer := NewTimer()
+	timer.clck = clck
+	timer.Start()
+	clck.Add(wakeupTimeout + time.Second)
+
+	lp := &Loadpoint{
+		log:            util.NewLogger("foo"),
+		bus:            evbus.New(),
+		clock:          clck,
+		charger:        ch,
+		chargeMeter:    &Null{},
+		chargeRater:    &Null{},
+		chargeTimer:    &Null{},
+		wakeUpTimer:    timer,
+		minCurrent:     minA,
+		maxCurrent:     maxA,
+		phases:         1,
+		measuredPhases: 1,
+		offeredCurrent: minA,
+		status:         api.StatusB,
+		enabled:        true,
+		mode:           api.ModeMinPV,
+		vehicleSoc:     50,
+	}
+
+	charger.EXPECT().Status().Return(api.StatusB, nil)
+	charger.EXPECT().Enabled().Return(true, nil)
+
+	lp.Update(500, 0, nil, nil, false, false, 0, nil, nil)
+
+	assert.Equal(t, 1, ch.wakeups)
+	assert.False(t, lp.vehicleLimiterHold)
 }
 
 func TestDisableAndEnableAtTargetSoc(t *testing.T) {

@@ -119,6 +119,11 @@ func (c *VehicleApi) Enabled() (bool, error) {
 	return verifyEnabled(c, c.enabled)
 }
 
+// Features implements the api.FeatureDescriber interface
+func (c *VehicleApi) Features() []api.Feature {
+	return []api.Feature{api.VehicleControl}
+}
+
 // Enable implements the api.Charger interface
 func (c *VehicleApi) Enable(enable bool) error {
 	if c.lp == nil {

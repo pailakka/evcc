@@ -144,6 +144,9 @@ type Loadpoint struct {
 	coordinator    coordinator.API
 	socEstimator   *soc.Estimator
 
+	vehicleLimitSoc    int  // vehicle api soc limit
+	vehicleLimiterHold bool // PV mode keeps charger enabled because the vehicle is limiting
+
 	// charge planning
 	planner          *planner.Planner
 	planTime         time.Time        // time goal
@@ -1455,6 +1458,23 @@ func (lp *Loadpoint) boostPower(batteryBoostPower float64) float64 {
 	return res
 }
 
+// vehicleLimiterHoldReason returns why PV mode should keep the charger enabled
+// while the vehicle is limiting charging itself.
+func (lp *Loadpoint) vehicleLimiterHoldReason() string {
+	if lp.enabled && lp.connected() &&
+		lp.vehicleLimitSoc > 0 &&
+		lp.vehicleLimitSoc < lp.effectiveLimitSoc() &&
+		lp.vehicleSoc >= float64(lp.vehicleLimitSoc) {
+		return "vehicle soc limit reached"
+	}
+
+	if lp.chargerHasFeature(api.VehicleControl) && lp.enabled && lp.connected() && !lp.charging() {
+		return "vehicle control active"
+	}
+
+	return ""
+}
+
 // pvMaxCurrent calculates the maximum target current for PV mode
 func (lp *Loadpoint) pvMaxCurrent(mode api.ChargeMode, sitePower, batteryBoostPower float64, batteryBuffered, batteryStart bool) float64 {
 	// read only once to simplify testing
@@ -1501,6 +1521,13 @@ func (lp *Loadpoint) pvMaxCurrent(mode api.ChargeMode, sitePower, batteryBoostPo
 		}
 		// kick off disable sequence
 		if projectedSitePower >= lp.Disable.Threshold {
+			if reason := lp.vehicleLimiterHoldReason(); reason != "" {
+				lp.log.DEBUG.Printf("pv disable skipped: %s", reason)
+				lp.vehicleLimiterHold = true
+				lp.resetPVTimer("disable")
+				return minCurrent
+			}
+
 			lp.log.DEBUG.Printf("projected site power %.0fW >= %.0fW disable threshold", projectedSitePower, lp.Disable.Threshold)
 
 			if lp.pvTimer.IsZero() {
@@ -1765,6 +1792,9 @@ func (lp *Loadpoint) publishSocAndRange() {
 						limitR = &limit
 
 						lp.log.DEBUG.Printf("%s soc limit: %d%%", typ, limit)
+						if typ == "vehicle" {
+							lp.vehicleLimitSoc = int(limit)
+						}
 						// https://github.com/evcc-io/evcc/issues/13349
 						lp.publish(keys.VehicleLimitSoc, float64(limit))
 					} else if !loadpoint.AcceptableError(err) {
@@ -2005,6 +2035,8 @@ func (lp *Loadpoint) Update(sitePower, batteryBoostPower float64, consumption, f
 	minSocNotReached := lp.minSocNotReached()
 	lp.publish(keys.MinSocNotReached, minSocNotReached)
 
+	lp.vehicleLimiterHold = false
+
 	// execute loading strategy
 	switch {
 	case !lp.connected():
@@ -2083,7 +2115,8 @@ func (lp *Loadpoint) Update(sitePower, batteryBoostPower float64, consumption, f
 
 	// Wake-up checks
 	if lp.enabled && lp.status == api.StatusB &&
-		// TODO take vehicle api limits into account
+		// don't wake a vehicle that is intentionally holding charging off
+		!lp.vehicleLimiterHold &&
 		!lp.chargerHasFeature(api.IntegratedDevice) && int(lp.vehicleSoc) < lp.EffectiveLimitSoc() {
 		switch lp.wakeUpTimer.Elapsed() {
 		case WakeUpTimerElapsed:
