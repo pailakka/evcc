@@ -157,15 +157,44 @@ func (v *adapter) GetRepeatingPlans() []api.RepeatingPlan {
 }
 
 func (v *adapter) GetPlanStrategy() api.PlanStrategy {
-	var strategy api.PlanStrategy
-	if err := settings.Json(v.key()+keys.PlanStrategy, &strategy); err != nil {
-		return api.PlanStrategy{}
+	strategy := api.DefaultPlanStrategy()
+	foundPlanStrategy := false
+	if err := settings.Json(v.key()+keys.PlanStrategy, &strategy); err == nil {
+		foundPlanStrategy = true
 	}
+	if contribution, err := settings.Float(v.key() + keys.PlanContribution); err == nil {
+		strategy.PreconditionContribution = contribution
+		foundPlanStrategy = true
+	}
+	if supportMode, err := settings.String(v.key() + keys.PlanSupportMode); err == nil {
+		strategy.PreconditionSupportMode = api.PreconditionSupportMode(supportMode)
+		foundPlanStrategy = true
+	}
+	if !foundPlanStrategy {
+		return api.DefaultPlanStrategy()
+	}
+
+	_ = v.persistPlanStrategy(strategy)
 	return strategy
 }
 
+func (v *adapter) persistPlanStrategy(planStrategy api.PlanStrategy) error {
+	if err := settings.SetJson(v.key()+keys.PlanStrategy, planStrategy.PersistedValue()); err != nil {
+		return err
+	}
+	defaultStrategy := api.DefaultPlanStrategy()
+	if planStrategy.PreconditionContribution == defaultStrategy.PreconditionContribution {
+		settings.SetString(v.key()+keys.PlanContribution, "")
+	} else {
+		settings.SetFloat(v.key()+keys.PlanContribution, planStrategy.PreconditionContribution)
+	}
+	settings.SetString(v.key()+keys.PlanSupportMode, string(planStrategy.PreconditionSupportMode))
+
+	return nil
+}
+
 func (v *adapter) SetPlanStrategy(planStrategy api.PlanStrategy) error {
-	if err := settings.SetJson(v.key()+keys.PlanStrategy, planStrategy); err != nil {
+	if err := v.persistPlanStrategy(planStrategy); err != nil {
 		return err
 	}
 

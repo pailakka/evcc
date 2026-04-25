@@ -1,6 +1,7 @@
 package planner
 
 import (
+	"math"
 	"slices"
 	"time"
 
@@ -94,10 +95,25 @@ func continuousPlan(rates api.Rates, start, end time.Time) api.Rates {
 	return res
 }
 
-func (t *Planner) Plan(requiredDuration, precondition time.Duration, targetTime time.Time, continuous bool) api.Rates {
+func clampPreconditionContribution(contribution float64) float64 {
+	switch {
+	case math.IsNaN(contribution), math.IsInf(contribution, 0):
+		return 1
+	case contribution < 0:
+		return 0
+	case contribution > 1:
+		return 1
+	default:
+		return contribution
+	}
+}
+
+func (t *Planner) Plan(requiredDuration time.Duration, targetTime time.Time, strategy api.PlanStrategy) api.Rates {
 	if t == nil || requiredDuration <= 0 {
 		return nil
 	}
+
+	precondition := strategy.Precondition
 
 	now := t.clock.Now().Truncate(time.Second)
 
@@ -170,8 +186,8 @@ func (t *Planner) Plan(requiredDuration, precondition time.Duration, targetTime 
 	if precondition > 0 {
 		rates, precond = splitPreconditionSlots(rates, targetTime)
 
-		// reduce required duration by precondition, skip planning if required
-		requiredDuration = max(requiredDuration-precondition, 0)
+		creditedLate := time.Duration(float64(precondition) * clampPreconditionContribution(strategy.PreconditionContribution))
+		requiredDuration = max(requiredDuration-creditedLate, 0)
 		if requiredDuration == 0 {
 			return precond
 		}
@@ -179,7 +195,7 @@ func (t *Planner) Plan(requiredDuration, precondition time.Duration, targetTime 
 
 	// create plan unless only precond slots remaining
 	var plan api.Rates
-	if continuous {
+	if strategy.Continuous {
 		// find cheapest continuous window
 		plan = findContinuousWindow(rates, requiredDuration, targetTime)
 	} else {

@@ -107,21 +107,55 @@ func (lp *Loadpoint) GetPlanGoal() (float64, bool) {
 
 // GetPlan creates a charging plan for given time and duration
 // The plan is sorted by time
-func (lp *Loadpoint) GetPlan(targetTime time.Time, requiredDuration, precondition time.Duration, continuous bool) api.Rates {
+func (lp *Loadpoint) GetPlan(targetTime time.Time, requiredDuration time.Duration, strategy api.PlanStrategy) api.Rates {
 	if lp.planner == nil || targetTime.IsZero() {
 		return nil
 	}
 
-	lp.log.TRACE.Printf("plan: creating plan with continuous=%v, precondition=%v, duration=%v, target=%v",
-		continuous, precondition, requiredDuration.Round(time.Second), targetTime.Round(time.Second).Local())
+	lp.log.TRACE.Printf("plan: creating plan with continuous=%v, precondition=%v, contribution=%.3g, support=%q, duration=%v, target=%v",
+		strategy.Continuous, strategy.Precondition, strategy.PreconditionContribution, strategy.PreconditionSupportMode,
+		requiredDuration.Round(time.Second), targetTime.Round(time.Second).Local())
 
-	return lp.planner.Plan(requiredDuration, precondition, targetTime, continuous)
+	return lp.planner.Plan(requiredDuration, targetTime, strategy)
+}
+
+func (lp *Loadpoint) insidePreconditionWindow(planTime time.Time, precondition time.Duration) bool {
+	if planTime.IsZero() || precondition <= 0 {
+		return false
+	}
+
+	now := lp.clock.Now()
+	start := planTime.Add(-precondition)
+
+	return !now.Before(start) && now.Before(planTime)
+}
+
+func (lp *Loadpoint) preconditionKeepAliveAllowed(goal float64, isSocBased bool) bool {
+	if !isSocBased {
+		return false
+	}
+
+	limitSoc := lp.hardLimitSoc
+	return limitSoc > 0 && limitSoc < 100 && float64(limitSoc) <= goal
+}
+
+func (lp *Loadpoint) preconditionKeepAlive(strategy api.PlanStrategy, planTime time.Time, goal float64, isSocBased bool) (insideWindow, allowed bool) {
+	if strategy.PreconditionSupportMode != api.PreconditionSupportKeepAlive || strategy.Precondition <= 0 {
+		return false, false
+	}
+
+	return lp.insidePreconditionWindow(planTime, strategy.Precondition), lp.preconditionKeepAliveAllowed(goal, isSocBased)
 }
 
 // plannerActive checks if the charging plan has a currently active slot
 func (lp *Loadpoint) plannerActive() (active bool) {
+	preservePlanLock := false
 	defer func() {
+		planLocked := lp.planLocked
 		lp.setPlanActive(active)
+		if preservePlanLock {
+			lp.planLocked = planLocked
+		}
 	}()
 
 	var plan api.Rates
@@ -155,21 +189,41 @@ func (lp *Loadpoint) plannerActive() (active bool) {
 
 	goal, isSocBased := lp.GetPlanGoal()
 	maxPower := lp.EffectiveMaxPower()
+	strategy := lp.getEffectivePlanStrategy()
 	requiredDuration := lp.GetPlanRequiredDuration(goal, maxPower)
 	if requiredDuration <= 0 {
 		// continue a 100% plan as long as the vehicle is connected
 		if lp.planActive && isSocBased && goal == 100 {
 			return true
 		}
+
+		if insideWindow, allowed := lp.preconditionKeepAlive(strategy, planTime, goal, isSocBased); allowed {
+			if insideWindow {
+				lp.log.DEBUG.Printf("plan: keeping precondition window active until %s", planTime.Round(time.Second).Local())
+				return true
+			}
+
+			if lp.clock.Now().Before(planTime) {
+				preservePlanLock = true
+				lp.log.DEBUG.Printf("plan: keeping satisfied plan pending for precondition window until %s", planTime.Round(time.Second).Local())
+				return false
+			}
+
+			lp.log.DEBUG.Printf("plan: precondition keepalive inactive outside window until %s", planTime.Round(time.Second).Local())
+		} else if strategy.PreconditionSupportMode == api.PreconditionSupportKeepAlive && strategy.Precondition > 0 {
+			lp.log.DEBUG.Printf(
+				"plan: precondition keepalive inactive: insideWindow=%v socBased=%v hardLimitSoc=%d goal=%.0f%% planTime=%s precondition=%v",
+				insideWindow, isSocBased, lp.hardLimitSoc, goal, planTime.Round(time.Second).Local(), strategy.Precondition.Round(time.Second),
+			)
+		}
+
 		lp.log.DEBUG.Println("!! plan: required duration 0")
 
 		lp.finishPlan()
 		return false
 	}
 
-	strategy := lp.getEffectivePlanStrategy()
-
-	plan = lp.GetPlan(planTime, requiredDuration, strategy.Precondition, strategy.Continuous)
+	plan = lp.GetPlan(planTime, requiredDuration, strategy)
 	if plan == nil {
 		lp.log.DEBUG.Println("!! plan: plan nil")
 		return false

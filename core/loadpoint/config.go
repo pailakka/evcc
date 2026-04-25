@@ -28,6 +28,8 @@ type DynamicConfig struct {
 	PlanEnergy               float64   `json:"planEnergy"`
 	PlanTime                 time.Time `json:"planTime"`
 	PlanPrecondition_        int64     `json:"planPrecondition" mapstructure:"planPrecondition"` // TODO deprecated, keep for compatibility
+	PlanContribution_        *float64  `json:"planContribution" mapstructure:"planContribution"`
+	PlanSupportMode_         string    `json:"planSupportMode" mapstructure:"planSupportMode"`
 	BatteryBoostLimit        int       `json:"batteryBoostLimit"`
 	LimitEnergy              float64   `json:"limitEnergy"`
 	LimitSoc                 int       `json:"limitSoc"`
@@ -64,7 +66,19 @@ func (payload DynamicConfig) Apply(lp API) error {
 	lp.SetSmartFeedInPriorityLimit(payload.SmartFeedInPriorityLimit)
 	lp.SetThresholds(payload.Thresholds)
 	lp.SetPlanEnergy(payload.PlanTime, payload.PlanEnergy)
-	lp.SetPlanStrategy(payload.PlanStrategy)
+	strategy := payload.PlanStrategy
+	currentStrategy := lp.GetPlanStrategy()
+	if payload.PlanContribution_ != nil {
+		strategy.PreconditionContribution = *payload.PlanContribution_
+	} else {
+		strategy.PreconditionContribution = currentStrategy.PreconditionContribution
+	}
+	if payload.PlanSupportMode_ != "" {
+		strategy.PreconditionSupportMode = api.PreconditionSupportMode(payload.PlanSupportMode_)
+	} else {
+		strategy.PreconditionSupportMode = currentStrategy.PreconditionSupportMode
+	}
+	lp.SetPlanStrategy(strategy)
 	lp.SetBatteryBoostLimit(payload.BatteryBoostLimit)
 	lp.SetLimitEnergy(payload.LimitEnergy)
 	lp.SetLimitSoc(payload.LimitSoc)

@@ -3,9 +3,12 @@ package settings
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"sync"
 	"time"
 
+	"github.com/evcc-io/evcc/core/keys"
+	dbsettings "github.com/evcc-io/evcc/server/db/settings"
 	"github.com/evcc-io/evcc/util"
 	"github.com/evcc-io/evcc/util/config"
 	"github.com/spf13/cast"
@@ -24,6 +27,10 @@ func NewConfigSettingsAdapter(log *util.Logger, conf *config.Config) *ConfigSett
 }
 
 func (s *ConfigSettings) get(key string) (any, error) {
+	if s.externalCompatibilityKey(key) != "" {
+		return dbsettings.String(s.externalCompatibilityKey(key))
+	}
+
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	val := s.conf.Named().Other[key]
@@ -38,9 +45,31 @@ func (s *ConfigSettings) set(key string, val any) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	data := s.conf.Named().Other
-	data[key] = val
+	if externalKey := s.externalCompatibilityKey(key); externalKey != "" {
+		switch v := val.(type) {
+		case string:
+			dbsettings.SetString(externalKey, v)
+		case float64:
+			dbsettings.SetFloat(externalKey, v)
+		default:
+			dbsettings.SetString(externalKey, cast.ToString(v))
+		}
+
+		delete(data, key)
+	} else {
+		data[key] = val
+	}
 	if err := s.conf.Update(data); err != nil {
 		s.log.ERROR.Println(err)
+	}
+}
+
+func (s *ConfigSettings) externalCompatibilityKey(key string) string {
+	switch key {
+	case keys.PlanContribution, keys.PlanSupportMode:
+		return fmt.Sprintf("cfg.%s.%d.%s", s.conf.Class, s.conf.ID, key)
+	default:
+		return ""
 	}
 }
 
@@ -114,9 +143,22 @@ func (s *ConfigSettings) Bool(key string) (bool, error) {
 }
 
 func (s *ConfigSettings) Json(key string, res any) error {
-	str, err := s.String(key)
-	if str == "" || err != nil {
+	val, err := s.get(key)
+	if err != nil {
 		return err
 	}
-	return json.Unmarshal([]byte(str), &res)
+
+	switch v := val.(type) {
+	case string:
+		if v == "" {
+			return err
+		}
+		return json.Unmarshal([]byte(v), &res)
+	default:
+		data, err := json.Marshal(v)
+		if err != nil {
+			return err
+		}
+		return json.Unmarshal(data, &res)
+	}
 }

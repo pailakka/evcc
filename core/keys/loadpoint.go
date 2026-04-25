@@ -86,6 +86,8 @@ const (
 	PlanProjectedEnd   = "planProjectedEnd"   // charge plan ends (end of last slot)
 	PlanOverrun        = "planOverrun"        // charge plan goal not reachable in time
 	PlanStrategy       = "planStrategy"       // charge plan strategy (precondition, continuous)
+	PlanContribution   = "planContribution"   // additional credited share of precondition window
+	PlanSupportMode    = "planSupportMode"    // additional runtime support mode for precondition window
 
 	// repeating plans
 	RepeatingPlans = "repeatingPlans" // key to access all repeating plans in db

@@ -1131,6 +1131,15 @@
         "optionAll": "alles",
         "optionNo": "nein"
       },
+      "preconditionContribution": {
+        "label": "Zielbeitrag",
+        "option": "{value}"
+      },
+      "preconditionSupport": {
+        "label": "Ladepunkt",
+        "optionKeepAlive": "verfügbar halten",
+        "optionNo": "aus"
+      },
       "remove": "Entfernen",
       "repeating": "wiederholend",
       "repeatingPlans": "Wiederholende Pläne",

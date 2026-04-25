@@ -166,6 +166,7 @@ type Loadpoint struct {
 
 	// charge progress
 	vehicleSoc              float64       // Vehicle or charger soc
+	hardLimitSoc            int           // charger or vehicle reported hard soc limit
 	chargeDuration          time.Duration // Charge duration
 	connectedDuration       time.Duration // Connection duration
 	energyMetrics           EnergyMetrics // Stats for charged energy by session
@@ -302,11 +303,12 @@ func NewLoadpoint(log *util.Logger, settings settings.Settings) *Loadpoint {
 				Mode:     loadpoint.PollCharging,
 			},
 		},
-		Enable:      loadpoint.ThresholdConfig{Delay: time.Minute, Threshold: 0},     // t, W
-		Disable:     loadpoint.ThresholdConfig{Delay: 3 * time.Minute, Threshold: 0}, // t, W
-		progress:    NewProgress(0, 10),                                              // soc progress indicator
-		coordinator: coordinator.NewDummy(),                                          // dummy vehicle coordinator
-		tasks:       util.NewQueue[Task](),                                           // task queue
+		Enable:       loadpoint.ThresholdConfig{Delay: time.Minute, Threshold: 0},     // t, W
+		Disable:      loadpoint.ThresholdConfig{Delay: 3 * time.Minute, Threshold: 0}, // t, W
+		progress:     NewProgress(0, 10),                                              // soc progress indicator
+		coordinator:  coordinator.NewDummy(),                                          // dummy vehicle coordinator
+		planStrategy: api.DefaultPlanStrategy(),
+		tasks:        util.NewQueue[Task](), // task queue
 	}
 
 	return lp
@@ -380,9 +382,24 @@ func (lp *Loadpoint) restoreSettings() {
 		lp.setPlanEnergy(t, v)
 	}
 
-	// load plan strategy (continuous mode and precondition duration)
-	var planStrategy api.PlanStrategy
+	lp.restorePlanStrategySettings()
+}
+
+func (lp *Loadpoint) restorePlanStrategySettings() {
+	planStrategy := api.DefaultPlanStrategy()
+	foundPlanStrategy := false
 	if err := lp.settings.Json(keys.PlanStrategy, &planStrategy); err == nil {
+		foundPlanStrategy = true
+	}
+	if contribution, err := lp.settings.Float(keys.PlanContribution); err == nil {
+		planStrategy.PreconditionContribution = contribution
+		foundPlanStrategy = true
+	}
+	if supportMode, err := lp.settings.String(keys.PlanSupportMode); err == nil {
+		planStrategy.PreconditionSupportMode = api.PreconditionSupportMode(supportMode)
+		foundPlanStrategy = true
+	}
+	if foundPlanStrategy {
 		lp.setPlanStrategy(planStrategy)
 	}
 }
@@ -1808,8 +1825,11 @@ func (lp *Loadpoint) publishSocAndRange() {
 	apiLimitSoc := 100
 	if limitR != nil {
 		apiLimitSoc = int(*limitR)
+		lp.hardLimitSoc = int(*limitR)
 		// https://github.com/evcc-io/evcc/issues/13349
 		lp.publish(keys.VehicleLimitSoc, float64(*limitR))
+	} else {
+		lp.hardLimitSoc = 0
 	}
 
 	limitSoc := min(apiLimitSoc, lp.EffectiveLimitSoc())
