@@ -185,10 +185,18 @@ func (lp *Loadpoint) plannerActive() (active bool) {
 		}
 
 		if strategy.PreconditionSupportMode == api.PreconditionSupportKeepAlive &&
-			lp.insidePreconditionWindow(planTime, strategy.Precondition) &&
-			lp.preconditionKeepAliveAllowed(goal, isSocBased) {
-			lp.log.DEBUG.Printf("plan: keeping precondition window active until %s", planTime.Round(time.Second).Local())
-			return true
+			strategy.Precondition > 0 {
+			insideWindow := lp.insidePreconditionWindow(planTime, strategy.Precondition)
+			allowed := lp.preconditionKeepAliveAllowed(goal, isSocBased)
+			if insideWindow && allowed {
+				lp.log.DEBUG.Printf("plan: keeping precondition window active until %s", planTime.Round(time.Second).Local())
+				return true
+			}
+
+			lp.log.DEBUG.Printf(
+				"plan: precondition keepalive inactive: insideWindow=%v socBased=%v hardLimitSoc=%d goal=%.0f%% planTime=%s precondition=%v",
+				insideWindow, isSocBased, lp.hardLimitSoc, goal, planTime.Round(time.Second).Local(), strategy.Precondition.Round(time.Second),
+			)
 		}
 
 		lp.log.DEBUG.Println("!! plan: required duration 0")
