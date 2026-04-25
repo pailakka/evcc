@@ -1131,6 +1131,15 @@
         "optionAll": "everything",
         "optionNo": "no"
       },
+      "preconditionContribution": {
+        "label": "Target credit",
+        "option": "{value}"
+      },
+      "preconditionSupport": {
+        "label": "Charger support",
+        "optionKeepAlive": "keep available",
+        "optionNo": "off"
+      },
       "remove": "Remove",
       "repeating": "repeating",
       "repeatingPlans": "Repeating plans",
