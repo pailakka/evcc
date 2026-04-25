@@ -16,4 +16,5 @@ const (
 	Retryable                // vehicle
 	Streaming                // vehicle
 	WelcomeCharge            // vehicle
+	VehicleControl           // charger - delegates charge control to the vehicle api
 )

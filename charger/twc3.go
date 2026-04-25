@@ -101,6 +101,11 @@ func (c *Twc3) Enabled() (bool, error) {
 	return verifyEnabled(c, c.enabled)
 }
 
+// Features implements the api.FeatureDescriber interface
+func (c *Twc3) Features() []api.Feature {
+	return []api.Feature{api.VehicleControl}
+}
+
 // Enable implements the api.Charger interface
 func (c *Twc3) Enable(enable bool) error {
 	if c.lp == nil {

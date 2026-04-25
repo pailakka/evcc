@@ -25,6 +25,15 @@ func expectVehiclePublish(vehicle *api.MockVehicle) {
 	vehicle.EXPECT().OnIdentified().AnyTimes()
 }
 
+type limitSocVehicle struct {
+	api.Vehicle
+	limit int64
+}
+
+func (v limitSocVehicle) GetLimitSoc() (int64, error) {
+	return v.limit, nil
+}
+
 func TestPublishSocAndRange(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	clck := clock.NewMock()
@@ -75,6 +84,42 @@ func TestPublishSocAndRange(t *testing.T) {
 		}
 		lp.publishSocAndRange()
 	}
+}
+
+func TestPublishSocAndRangeCachesVehicleLimitSoc(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	clck := clock.NewMock()
+
+	charger := api.NewMockCharger(ctrl)
+
+	baseVehicle := api.NewMockVehicle(ctrl)
+	expectVehiclePublish(baseVehicle)
+	baseVehicle.EXPECT().Soc().Return(80.0, nil)
+
+	vehicle := limitSocVehicle{
+		Vehicle: baseVehicle,
+		limit:   80,
+	}
+
+	lp := &Loadpoint{
+		log:         util.NewLogger("foo"),
+		bus:         evbus.New(),
+		clock:       clck,
+		charger:     charger,
+		vehicle:     vehicle,
+		chargeMeter: &Null{},
+		chargeRater: &Null{},
+		chargeTimer: &Null{},
+		minCurrent:  minA,
+		maxCurrent:  maxA,
+		phases:      1,
+		status:      api.StatusB,
+		mode:        api.ModePV,
+	}
+
+	lp.publishSocAndRange()
+
+	assert.Equal(t, 80, lp.vehicleLimitSoc)
 }
 
 func TestPublishSocAndRangeVehiclesAndChargers(t *testing.T) {
