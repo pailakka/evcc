@@ -151,6 +151,36 @@ func TestPlannerActiveKeepAliveOutsidePreconditionWindow(t *testing.T) {
 	assert.False(t, lp.planActive)
 }
 
+func TestPlannerActiveKeepAliveKeepsSatisfiedPlanPendingBeforePreconditionWindow(t *testing.T) {
+	now := time.Date(2026, 4, 23, 8, 0, 0, 0, time.UTC)
+	lp, clk, v := newPlanTestLoadpoint(t, now)
+
+	strategy := api.DefaultPlanStrategy()
+	strategy.Precondition = 30 * time.Minute
+	strategy.PreconditionSupportMode = api.PreconditionSupportKeepAlive
+	require.NoError(t, vehicle.Settings(lp.log, v).SetPlanStrategy(strategy))
+
+	planTime := now.Add(45 * time.Minute)
+	lp.lockPlanGoal(planTime, 80, 1)
+	lp.hardLimitSoc = 80
+	lp.planActive = true
+
+	assert.False(t, lp.plannerActive())
+	assert.False(t, lp.planActive)
+	assert.Equal(t, PlanLock{Time: planTime, Soc: 80, Id: 1}, lp.planLocked)
+
+	clk.Set(planTime.Add(-10 * time.Minute))
+
+	assert.True(t, lp.plannerActive())
+	assert.True(t, lp.planActive)
+
+	clk.Set(planTime)
+
+	assert.False(t, lp.plannerActive())
+	assert.False(t, lp.planActive)
+	assert.Equal(t, PlanLock{}, lp.planLocked)
+}
+
 func TestPlannerActiveGoal100Unchanged(t *testing.T) {
 	now := time.Date(2026, 4, 23, 8, 0, 0, 0, time.UTC)
 	lp, _, v := newPlanTestLoadpoint(t, now)

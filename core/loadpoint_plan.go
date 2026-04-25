@@ -139,10 +139,23 @@ func (lp *Loadpoint) preconditionKeepAliveAllowed(goal float64, isSocBased bool)
 	return limitSoc > 0 && limitSoc < 100 && float64(limitSoc) <= goal
 }
 
+func (lp *Loadpoint) preconditionKeepAlive(strategy api.PlanStrategy, planTime time.Time, goal float64, isSocBased bool) (insideWindow, allowed bool) {
+	if strategy.PreconditionSupportMode != api.PreconditionSupportKeepAlive || strategy.Precondition <= 0 {
+		return false, false
+	}
+
+	return lp.insidePreconditionWindow(planTime, strategy.Precondition), lp.preconditionKeepAliveAllowed(goal, isSocBased)
+}
+
 // plannerActive checks if the charging plan has a currently active slot
 func (lp *Loadpoint) plannerActive() (active bool) {
+	preservePlanLock := false
 	defer func() {
+		planLocked := lp.planLocked
 		lp.setPlanActive(active)
+		if preservePlanLock {
+			lp.planLocked = planLocked
+		}
 	}()
 
 	var plan api.Rates
@@ -184,15 +197,20 @@ func (lp *Loadpoint) plannerActive() (active bool) {
 			return true
 		}
 
-		if strategy.PreconditionSupportMode == api.PreconditionSupportKeepAlive &&
-			strategy.Precondition > 0 {
-			insideWindow := lp.insidePreconditionWindow(planTime, strategy.Precondition)
-			allowed := lp.preconditionKeepAliveAllowed(goal, isSocBased)
-			if insideWindow && allowed {
+		if insideWindow, allowed := lp.preconditionKeepAlive(strategy, planTime, goal, isSocBased); allowed {
+			if insideWindow {
 				lp.log.DEBUG.Printf("plan: keeping precondition window active until %s", planTime.Round(time.Second).Local())
 				return true
 			}
 
+			if lp.clock.Now().Before(planTime) {
+				preservePlanLock = true
+				lp.log.DEBUG.Printf("plan: keeping satisfied plan pending for precondition window until %s", planTime.Round(time.Second).Local())
+				return false
+			}
+
+			lp.log.DEBUG.Printf("plan: precondition keepalive inactive outside window until %s", planTime.Round(time.Second).Local())
+		} else if strategy.PreconditionSupportMode == api.PreconditionSupportKeepAlive && strategy.Precondition > 0 {
 			lp.log.DEBUG.Printf(
 				"plan: precondition keepalive inactive: insideWindow=%v socBased=%v hardLimitSoc=%d goal=%.0f%% planTime=%s precondition=%v",
 				insideWindow, isSocBased, lp.hardLimitSoc, goal, planTime.Round(time.Second).Local(), strategy.Precondition.Round(time.Second),
