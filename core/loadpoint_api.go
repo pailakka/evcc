@@ -400,9 +400,16 @@ func (lp *Loadpoint) SetPlanEnergy(finishAt time.Time, energy float64) error {
 
 // setPlanStrategy sets the plan strategy (no mutex)
 func (lp *Loadpoint) setPlanStrategy(strategy api.PlanStrategy) error {
-	if err := lp.settings.SetJson(keys.PlanStrategy, strategy); err != nil {
+	if err := lp.settings.SetJson(keys.PlanStrategy, strategy.PersistedValue()); err != nil {
 		return err
 	}
+	defaultStrategy := api.DefaultPlanStrategy()
+	if strategy.PreconditionContribution == defaultStrategy.PreconditionContribution {
+		lp.settings.SetString(keys.PlanContribution, "")
+	} else {
+		lp.settings.SetFloat(keys.PlanContribution, strategy.PreconditionContribution)
+	}
+	lp.settings.SetString(keys.PlanSupportMode, string(strategy.PreconditionSupportMode))
 
 	lp.planStrategy = strategy
 	lp.publish(keys.PlanStrategy, strategy)

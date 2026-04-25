@@ -382,9 +382,24 @@ func (lp *Loadpoint) restoreSettings() {
 		lp.setPlanEnergy(t, v)
 	}
 
-	// load plan strategy (continuous mode and precondition duration)
-	var planStrategy api.PlanStrategy
+	lp.restorePlanStrategySettings()
+}
+
+func (lp *Loadpoint) restorePlanStrategySettings() {
+	planStrategy := api.DefaultPlanStrategy()
+	foundPlanStrategy := false
 	if err := lp.settings.Json(keys.PlanStrategy, &planStrategy); err == nil {
+		foundPlanStrategy = true
+	}
+	if contribution, err := lp.settings.Float(keys.PlanContribution); err == nil {
+		planStrategy.PreconditionContribution = contribution
+		foundPlanStrategy = true
+	}
+	if supportMode, err := lp.settings.String(keys.PlanSupportMode); err == nil {
+		planStrategy.PreconditionSupportMode = api.PreconditionSupportMode(supportMode)
+		foundPlanStrategy = true
+	}
+	if foundPlanStrategy {
 		lp.setPlanStrategy(planStrategy)
 	}
 }

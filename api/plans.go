@@ -36,9 +36,21 @@ type planStrategy struct {
 	PreconditionSupportMode  PreconditionSupportMode `json:"preconditionSupportMode"`  // runtime support mode during precondition window
 }
 
+type persistedPlanStrategy struct {
+	Continuous   bool  `json:"continuous"`   // force continuous planning
+	Precondition int64 `json:"precondition"` // precondition duration in seconds
+}
+
 func DefaultPlanStrategy() PlanStrategy {
 	return PlanStrategy{
 		PreconditionContribution: defaultPreconditionContribution,
+	}
+}
+
+func (ps PlanStrategy) PersistedValue() any {
+	return persistedPlanStrategy{
+		Continuous:   ps.Continuous,
+		Precondition: int64(ps.Precondition.Seconds()),
 	}
 }
 

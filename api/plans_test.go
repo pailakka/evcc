@@ -38,3 +38,17 @@ func TestPlanStrategyRoundTrip(t *testing.T) {
 
 	assert.Equal(t, strategy, decoded)
 }
+
+func TestPlanStrategyPersistedValueStaysLegacyCompatible(t *testing.T) {
+	strategy := PlanStrategy{
+		Continuous:               true,
+		Precondition:             45 * time.Minute,
+		PreconditionContribution: 0.25,
+		PreconditionSupportMode:  PreconditionSupportKeepAlive,
+	}
+
+	data, err := json.Marshal(strategy.PersistedValue())
+	require.NoError(t, err)
+
+	assert.JSONEq(t, `{"continuous":true,"precondition":2700}`, string(data))
+}

@@ -7,10 +7,12 @@ import (
 	evbus "github.com/asaskevich/EventBus"
 	"github.com/benbjohnson/clock"
 	"github.com/evcc-io/evcc/api"
+	"github.com/evcc-io/evcc/core/keys"
 	"github.com/evcc-io/evcc/core/loadpoint"
 	"github.com/evcc-io/evcc/core/settings"
 	"github.com/evcc-io/evcc/core/soc"
 	"github.com/evcc-io/evcc/messenger"
+	dbsettings "github.com/evcc-io/evcc/server/db/settings"
 	"github.com/evcc-io/evcc/util"
 	"github.com/stretchr/testify/assert"
 	"go.uber.org/mock/gomock"
@@ -100,6 +102,33 @@ func TestNew(t *testing.T) {
 	if lp.charging() {
 		t.Errorf("charging %v", lp.charging())
 	}
+}
+
+func TestPlanStrategySettingsMigration(t *testing.T) {
+	keyPrefix := "planstrategy-migration."
+	dbsettings.SetString(keyPrefix+keys.PlanStrategy, `{"continuous":true,"precondition":900,"preconditionContribution":0.25,"preconditionSupportMode":"keepalive"}`)
+
+	lp := NewLoadpoint(util.NewLogger("foo"), settings.NewDatabaseSettingsAdapter(keyPrefix))
+	lp.restorePlanStrategySettings()
+
+	assert.Equal(t, api.PlanStrategy{
+		Continuous:               true,
+		Precondition:             15 * time.Minute,
+		PreconditionContribution: 0.25,
+		PreconditionSupportMode:  api.PreconditionSupportKeepAlive,
+	}, lp.GetPlanStrategy())
+
+	rawStrategy, err := dbsettings.String(keyPrefix + keys.PlanStrategy)
+	assert.NoError(t, err)
+	assert.JSONEq(t, `{"continuous":true,"precondition":900}`, rawStrategy)
+
+	contribution, err := dbsettings.Float(keyPrefix + keys.PlanContribution)
+	assert.NoError(t, err)
+	assert.Equal(t, 0.25, contribution)
+
+	supportMode, err := dbsettings.String(keyPrefix + keys.PlanSupportMode)
+	assert.NoError(t, err)
+	assert.Equal(t, "keepalive", supportMode)
 }
 
 func TestUpdatePowerZero(t *testing.T) {
