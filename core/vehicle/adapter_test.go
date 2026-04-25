@@ -17,6 +17,15 @@ func TestPlanStrategySettingsMigration(t *testing.T) {
 		name: "migration-test",
 	}
 
+	publishCalls := 0
+	prevPublish := Publish
+	Publish = func() {
+		publishCalls++
+	}
+	t.Cleanup(func() {
+		Publish = prevPublish
+	})
+
 	keyPrefix := v.key()
 	dbsettings.SetString(keyPrefix+keys.PlanStrategy, `{"continuous":true,"precondition":900,"preconditionContribution":0.25,"preconditionSupportMode":"keepalive"}`)
 
@@ -38,4 +47,5 @@ func TestPlanStrategySettingsMigration(t *testing.T) {
 	supportMode, err := dbsettings.String(keyPrefix + keys.PlanSupportMode)
 	assert.NoError(t, err)
 	assert.Equal(t, "keepalive", supportMode)
+	assert.Zero(t, publishCalls)
 }

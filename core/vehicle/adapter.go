@@ -174,11 +174,11 @@ func (v *adapter) GetPlanStrategy() api.PlanStrategy {
 		return api.DefaultPlanStrategy()
 	}
 
-	_ = v.SetPlanStrategy(strategy)
+	_ = v.persistPlanStrategy(strategy)
 	return strategy
 }
 
-func (v *adapter) SetPlanStrategy(planStrategy api.PlanStrategy) error {
+func (v *adapter) persistPlanStrategy(planStrategy api.PlanStrategy) error {
 	if err := settings.SetJson(v.key()+keys.PlanStrategy, planStrategy.PersistedValue()); err != nil {
 		return err
 	}
@@ -189,6 +189,14 @@ func (v *adapter) SetPlanStrategy(planStrategy api.PlanStrategy) error {
 		settings.SetFloat(v.key()+keys.PlanContribution, planStrategy.PreconditionContribution)
 	}
 	settings.SetString(v.key()+keys.PlanSupportMode, string(planStrategy.PreconditionSupportMode))
+
+	return nil
+}
+
+func (v *adapter) SetPlanStrategy(planStrategy api.PlanStrategy) error {
+	if err := v.persistPlanStrategy(planStrategy); err != nil {
+		return err
+	}
 
 	v.publish()
 
