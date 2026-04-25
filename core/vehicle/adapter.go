@@ -159,7 +159,7 @@ func (v *adapter) GetRepeatingPlans() []api.RepeatingPlan {
 func (v *adapter) GetPlanStrategy() api.PlanStrategy {
 	var strategy api.PlanStrategy
 	if err := settings.Json(v.key()+keys.PlanStrategy, &strategy); err != nil {
-		return api.PlanStrategy{}
+		return api.DefaultPlanStrategy()
 	}
 	return strategy
 }

@@ -13,6 +13,16 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func testStrategy(continuous bool, precondition time.Duration, contribution ...float64) api.PlanStrategy {
+	strategy := api.DefaultPlanStrategy()
+	strategy.Continuous = continuous
+	strategy.Precondition = precondition
+	if len(contribution) > 0 {
+		strategy.PreconditionContribution = contribution[0]
+	}
+	return strategy
+}
+
 func TestSplitPrecondition(t *testing.T) {
 	clock := clock.NewMock()
 	rr := rates([]float64{1, 2, 3, 4}, clock.Now(), tariff.SlotDuration)

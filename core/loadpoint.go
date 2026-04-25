@@ -166,6 +166,7 @@ type Loadpoint struct {
 
 	// charge progress
 	vehicleSoc              float64       // Vehicle or charger soc
+	hardLimitSoc            int           // charger or vehicle reported hard soc limit
 	chargeDuration          time.Duration // Charge duration
 	connectedDuration       time.Duration // Connection duration
 	energyMetrics           EnergyMetrics // Stats for charged energy by session
@@ -302,11 +303,12 @@ func NewLoadpoint(log *util.Logger, settings settings.Settings) *Loadpoint {
 				Mode:     loadpoint.PollCharging,
 			},
 		},
-		Enable:      loadpoint.ThresholdConfig{Delay: time.Minute, Threshold: 0},     // t, W
-		Disable:     loadpoint.ThresholdConfig{Delay: 3 * time.Minute, Threshold: 0}, // t, W
-		progress:    NewProgress(0, 10),                                              // soc progress indicator
-		coordinator: coordinator.NewDummy(),                                          // dummy vehicle coordinator
-		tasks:       util.NewQueue[Task](),                                           // task queue
+		Enable:       loadpoint.ThresholdConfig{Delay: time.Minute, Threshold: 0},     // t, W
+		Disable:      loadpoint.ThresholdConfig{Delay: 3 * time.Minute, Threshold: 0}, // t, W
+		progress:     NewProgress(0, 10),                                              // soc progress indicator
+		coordinator:  coordinator.NewDummy(),                                          // dummy vehicle coordinator
+		planStrategy: api.DefaultPlanStrategy(),
+		tasks:        util.NewQueue[Task](), // task queue
 	}
 
 	return lp
@@ -1808,8 +1810,11 @@ func (lp *Loadpoint) publishSocAndRange() {
 	apiLimitSoc := 100
 	if limitR != nil {
 		apiLimitSoc = int(*limitR)
+		lp.hardLimitSoc = int(*limitR)
 		// https://github.com/evcc-io/evcc/issues/13349
 		lp.publish(keys.VehicleLimitSoc, float64(*limitR))
+	} else {
+		lp.hardLimitSoc = 0
 	}
 
 	limitSoc := min(apiLimitSoc, lp.EffectiveLimitSoc())

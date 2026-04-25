@@ -58,7 +58,7 @@ func (v *dummy) GetRepeatingPlans() []api.RepeatingPlan {
 }
 
 func (v *dummy) GetPlanStrategy() api.PlanStrategy {
-	return api.PlanStrategy{}
+	return api.DefaultPlanStrategy()
 }
 
 func (v *dummy) SetPlanStrategy(strategy api.PlanStrategy) error {
