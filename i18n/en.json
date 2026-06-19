@@ -1229,6 +1229,11 @@
       "addRepeatingPlan": "Add repeating plan",
       "arrivalTab": "Arrival",
       "day": "Day",
+      "departurePower": {
+        "description": "Keeps the charger enabled before departure so the vehicle can use external power for scheduled climate or battery conditioning. Does not change optimized charging.",
+        "label": "Charger on before departure",
+        "optionNo": "no"
+      },
       "departureTab": "Departure",
       "goal": "Charging goal",
       "modalTitle": "Charging Plan",

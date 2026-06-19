@@ -36,4 +36,5 @@ export interface StaticEnergyPlan {
 export interface PlanStrategy {
   continuous: boolean;
   precondition: number;
+  departurePower?: number;
 }

@@ -1229,6 +1229,11 @@
       "addRepeatingPlan": "Wiederholenden Plan hinzufügen",
       "arrivalTab": "Ankunft",
       "day": "Tag",
+      "departurePower": {
+        "description": "Hält den Ladepunkt vor der Abfahrt aktiv, damit das Fahrzeug Netzstrom für geplante Klima- oder Batterie-Vorkonditionierung nutzen kann. Ändert die optimierte Ladung nicht.",
+        "label": "Ladepunkt vor Abfahrt aktiv",
+        "optionNo": "nein"
+      },
       "departureTab": "Abfahrt",
       "goal": "Ladeziel",
       "modalTitle": "Ladeplanung",

@@ -58,6 +58,7 @@
 		<ChargingPlanStrategy
 			:id="id"
 			:precondition="effectivePlanStrategy?.precondition"
+			:departure-power="effectivePlanStrategy?.departurePower ?? 0"
 			:continuous="effectivePlanStrategy?.continuous"
 			:disabled="strategyDisabled"
 			:show="strategyOpen"
