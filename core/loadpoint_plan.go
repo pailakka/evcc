@@ -66,6 +66,63 @@ func (lp *Loadpoint) finishPlan() {
 	}
 }
 
+func departurePowerWindow(now, planTime time.Time, duration time.Duration) (bool, time.Time, time.Time) {
+	if planTime.IsZero() || duration <= 0 {
+		return false, time.Time{}, time.Time{}
+	}
+
+	start := planTime.Add(-duration)
+	active := !now.Before(start) && now.Before(planTime)
+	return active, start, planTime
+}
+
+func (lp *Loadpoint) keepPlanForDeparturePower(planTime time.Time, strategy api.PlanStrategy) bool {
+	return strategy.DeparturePower > 0 && !planTime.IsZero() && lp.clock.Now().Before(planTime) && lp.connected()
+}
+
+func (lp *Loadpoint) cleanupExpiredDeparturePowerPlan(strategy api.PlanStrategy) {
+	if strategy.DeparturePower <= 0 || !lp.socBasedPlanning() || !lp.connected() {
+		return
+	}
+
+	v := lp.GetVehicle()
+	if v == nil {
+		return
+	}
+
+	planTime, planSoc := vehicle.Settings(lp.log, v).GetPlanSoc()
+	if planTime.IsZero() || planSoc == 0 || lp.clock.Now().Before(planTime) {
+		return
+	}
+
+	if lp.vehicleSoc >= float64(planSoc) {
+		vehicle.Settings(lp.log, v).SetPlanSoc(time.Time{}, 0)
+	}
+}
+
+func (lp *Loadpoint) departurePowerActive() bool {
+	strategy := lp.getEffectivePlanStrategy()
+	if strategy.DeparturePower <= 0 || !lp.connected() {
+		lp.departurePower = false
+		return false
+	}
+
+	if lp.departurePower {
+		return true
+	}
+
+	now := lp.clock.Now()
+	planTime := lp.departurePowerPlanTime(now)
+	active, _, _ := departurePowerWindow(now, planTime, strategy.DeparturePower)
+	if active {
+		lp.departurePower = true
+	} else {
+		lp.cleanupExpiredDeparturePowerPlan(strategy)
+	}
+
+	return lp.departurePower
+}
+
 // remainingPlanEnergy returns missing energy amount in kWh
 func (lp *Loadpoint) remainingPlanEnergy(planEnergy float64) float64 {
 	return max(0, planEnergy-(lp.getChargedEnergy()/1e3-lp.planEnergyOffset))
@@ -140,8 +197,10 @@ func (lp *Loadpoint) plannerActive() (active bool) {
 		return false
 	}
 
+	strategy := lp.getEffectivePlanStrategy()
 	planTime := lp.EffectivePlanTime()
 	if planTime.IsZero() {
+		lp.cleanupExpiredDeparturePowerPlan(strategy)
 		lp.log.DEBUG.Println("!! plan: plan time zero")
 		return false
 	}
@@ -161,13 +220,15 @@ func (lp *Loadpoint) plannerActive() (active bool) {
 		if lp.planActive && isSocBased && goal == 100 {
 			return true
 		}
+		if lp.keepPlanForDeparturePower(planTime, strategy) {
+			lp.log.DEBUG.Printf("plan: target reached, retaining plan for departure power until %v", planTime.Round(time.Second).Local())
+			return false
+		}
 		lp.log.DEBUG.Println("!! plan: required duration 0")
 
 		lp.finishPlan()
 		return false
 	}
-
-	strategy := lp.getEffectivePlanStrategy()
 
 	plan = lp.GetPlan(planTime, requiredDuration, strategy.Precondition, strategy.Continuous)
 	if plan == nil {

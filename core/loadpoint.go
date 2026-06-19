@@ -151,11 +151,12 @@ type Loadpoint struct {
 	// charge planning
 	planner          *planner.Planner
 	planTime         time.Time        // time goal
-	planStrategy     api.PlanStrategy // plan strategy (precondition, continuous)
+	planStrategy     api.PlanStrategy // plan strategy (precondition, departure power, continuous)
 	planEnergy       float64          // Plan charge energy in kWh (dumb vehicles)
 	planEnergyOffset float64          // already charged energy in kWh when plan was set
 	planSlotEnd      time.Time        // current plan slot end time
 	planActive       bool             // charge plan exists and has a currently active slot
+	departurePower   bool             // departure power has started and remains active until disconnect
 	planOverrunSent  bool             // notification has been sent already
 	planLocked       PlanLock         // locked plan
 
@@ -395,7 +396,7 @@ func (lp *Loadpoint) restoreSettings() {
 		lp.setPlanEnergy(t, v)
 	}
 
-	// load plan strategy (continuous mode and precondition duration)
+	// load plan strategy (continuous mode, precondition duration, and departure power window)
 	var planStrategy api.PlanStrategy
 	if err := lp.settings.Json(keys.PlanStrategy, &planStrategy); err == nil {
 		lp.setPlanStrategy(planStrategy)
@@ -2101,6 +2102,7 @@ func (lp *Loadpoint) Update(sitePower, batteryBoostPower float64, consumption, f
 
 	// update and publish plan without being short-circuited by modes etc.
 	plannerActive := lp.plannerActive()
+	departurePowerActive := lp.departurePowerActive()
 
 	// update and publish min soc not reached state
 	minSocNotReached := lp.minSocNotReached()
@@ -2134,6 +2136,9 @@ func (lp *Loadpoint) Update(sitePower, batteryBoostPower float64, consumption, f
 		err = lp.fastCharging()
 		lp.resetPhaseTimer()
 		lp.elapsePVTimer() // let PV mode disable immediately afterwards
+
+	case departurePowerActive:
+		err = lp.setLimit(lp.effectiveMinCurrent())
 
 	case lp.LimitEnergyReached():
 		lp.log.DEBUG.Printf("limitEnergy reached: %.0fkWh > %0.1fkWh", lp.GetChargedEnergy()/1e3, lp.limitEnergy)
