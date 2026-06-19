@@ -613,6 +613,11 @@
             "description": "Force continuous planning",
             "type": "boolean"
           },
+          "departurePower": {
+            "description": "Charger-on window before departure in seconds",
+            "minimum": 0,
+            "type": "integer"
+          },
           "precondition": {
             "description": "Precondition duration in seconds",
             "minimum": 0,
