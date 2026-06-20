@@ -1,0 +1,34 @@
+template: sahkovatkain
+products:
+  - brand: Sähkövatkain
+    description:
+      generic: Nord Pool FI price forecast
+requirements:
+  description:
+    de: "Finnische Nord Pool Preisprognose von [sahkovatkain.web.app](https://sahkovatkain.web.app/)."
+    en: "Finnish Nord Pool price forecast from [sahkovatkain.web.app](https://sahkovatkain.web.app/)."
+  evcc: ["skiptest"]
+group: price
+countries: ["FI"]
+params:
+  - name: uri
+    default: https://sahkovatkain.web.app/prediction.json
+    description:
+      en: API endpoint
+      de: API-Endpunkt
+    advanced: true
+  - preset: tariff-base
+  - preset: tariff-features
+render: |
+  type: custom
+  {{ include "tariff-base" . }}
+  {{ include "tariff-features" . }}
+  forecast:
+    source: http
+    uri: {{ .uri }}
+    jq: |
+      [.[] | select((.[0] | type == "number") and (.[1] | type == "number")) | {
+        "start": (.[0] / 1000 | strftime("%Y-%m-%dT%H:%M:%SZ")),
+        "end": ((.[0] / 1000 + 3600) | strftime("%Y-%m-%dT%H:%M:%SZ")),
+        "value": (.[1] / 100)
+      }] | tostring
