@@ -1620,6 +1620,10 @@ components:
           description: "Precondition duration in seconds"
           type: integer
           minimum: 0
+        departurePower:
+          description: "Charger-on window before departure in seconds"
+          type: integer
+          minimum: 0
     RepeatingPlan:
       externalDocs:
         url: https://docs.evcc.io/en/docs/features/plans#repeating-plans

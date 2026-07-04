@@ -87,7 +87,7 @@ const (
 	PlanProjectedStart = "planProjectedStart" // charge plan start time (earliest slot)
 	PlanProjectedEnd   = "planProjectedEnd"   // charge plan ends (end of last slot)
 	PlanOverrun        = "planOverrun"        // charge plan goal not reachable in time
-	PlanStrategy       = "planStrategy"       // charge plan strategy (precondition, continuous)
+	PlanStrategy       = "planStrategy"       // charge plan strategy (precondition, departure power, continuous)
 
 	// repeating plans
 	RepeatingPlans = "repeatingPlans" // key to access all repeating plans in db

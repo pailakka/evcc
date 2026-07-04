@@ -8,7 +8,7 @@
 				</div>
 			</div>
 			<div v-else class="row">
-				<div class="col-12 col-sm-6 col-lg-3 offset-lg-3 mb-3">
+				<div class="col-12 col-sm-6 col-lg-4 mb-3">
 					<div class="row">
 						<label :for="formId('continuous')" class="col-form-label col-5 col-sm-12">
 							{{ $t("main.chargingPlan.optimization.label") }}
@@ -30,7 +30,7 @@
 						</div>
 					</div>
 				</div>
-				<div class="col-sm-6 col-lg-3 mb-3">
+				<div class="col-sm-6 col-lg-4 mb-3">
 					<div class="row">
 						<label :for="formId('precondition')" class="col-form-label col-5 col-sm-12">
 							{{ $t("main.chargingPlan.precondition.label") }}
@@ -56,6 +56,39 @@
 						</div>
 					</div>
 				</div>
+				<div class="col-sm-6 col-lg-4 mb-3">
+					<div class="row">
+						<label
+							:for="formId('departurePower')"
+							class="col-form-label col-5 col-sm-12"
+						>
+							{{ $t("main.chargingPlan.departurePower.label") }}
+						</label>
+						<div class="col-7 col-sm-12">
+							<select
+								:id="formId('departurePower')"
+								v-model="localDeparturePower"
+								class="form-select"
+								:aria-describedby="formId('departurePowerHelp')"
+								@change="updateStrategy"
+							>
+								<option :value="0">
+									{{ $t("main.chargingPlan.departurePower.optionNo") }}
+								</option>
+								<option
+									v-for="opt in departurePowerOptions"
+									:key="opt.value"
+									:value="opt.value"
+								>
+									{{ opt.name }}
+								</option>
+							</select>
+							<div :id="formId('departurePowerHelp')" class="form-text">
+								{{ $t("main.chargingPlan.departurePower.description") }}
+							</div>
+						</div>
+					</div>
+				</div>
 			</div>
 		</div>
 	</div>
@@ -73,6 +106,7 @@ export default defineComponent({
 		id: [String, Number],
 		show: Boolean,
 		precondition: { type: Number, default: 0 },
+		departurePower: { type: Number, default: 0 },
 		continuous: { type: Boolean, default: false },
 		disabled: Boolean,
 	},
@@ -80,6 +114,7 @@ export default defineComponent({
 	data() {
 		return {
 			localPrecondition: this.precondition,
+			localDeparturePower: this.departurePower,
 			localContinuous: this.continuous,
 		};
 	},
@@ -107,6 +142,25 @@ export default defineComponent({
 						: this.fmtDurationLong(s),
 			}));
 		},
+		departurePowerOptions() {
+			const HOUR = 60 * 60;
+			const QUARTER_HOUR = 0.25 * HOUR;
+			const HALF_HOUR = 0.5 * HOUR;
+			const ONE_HOUR = 1 * HOUR;
+			const TWO_HOURS = 2 * HOUR;
+
+			const options = [QUARTER_HOUR, HALF_HOUR, ONE_HOUR, TWO_HOURS];
+
+			// support custom values (via API)
+			if (this.localDeparturePower && !options.includes(this.localDeparturePower)) {
+				options.push(this.localDeparturePower);
+			}
+
+			return options.map((s) => ({
+				value: s,
+				name: this.fmtDurationLong(s),
+			}));
+		},
 	},
 	watch: {
 		precondition: {
@@ -114,6 +168,15 @@ export default defineComponent({
 				// Only update if value actually changed from external source
 				if (newValue !== this.localPrecondition) {
 					this.localPrecondition = newValue;
+				}
+			},
+			immediate: true,
+		},
+		departurePower: {
+			handler(newValue: number) {
+				// Only update if value actually changed from external source
+				if (newValue !== this.localDeparturePower) {
+					this.localDeparturePower = newValue;
 				}
 			},
 			immediate: true,
@@ -136,6 +199,7 @@ export default defineComponent({
 			const strategy: PlanStrategy = {
 				continuous: this.localContinuous,
 				precondition: this.localPrecondition,
+				departurePower: this.localDeparturePower,
 			};
 			this.$emit("update", strategy);
 		},

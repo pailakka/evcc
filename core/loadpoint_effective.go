@@ -39,6 +39,36 @@ type plan struct {
 	Soc   int
 }
 
+func (lp *Loadpoint) configuredVehiclePlans() []plan {
+	var plans []plan
+
+	if v := lp.GetVehicle(); v != nil {
+		settings := vehicle.Settings(lp.log, v)
+
+		// static plan
+		if planTime, soc := settings.GetPlanSoc(); soc != 0 {
+			plans = append(plans, plan{Id: 1, Soc: soc, End: planTime})
+		}
+
+		// repeating plans
+		for index, rp := range settings.GetRepeatingPlans() {
+			if !rp.Active || len(rp.Weekdays) == 0 {
+				continue
+			}
+
+			planTime, err := util.GetNextOccurrence(rp.Weekdays, rp.Time, rp.Tz)
+			if err != nil {
+				lp.log.DEBUG.Printf("invalid repeating plan: weekdays=%v, time=%s, tz=%s, error=%v", rp.Weekdays, rp.Time, rp.Tz, err)
+				continue
+			}
+
+			plans = append(plans, plan{Id: index + 2, Soc: rp.Soc, End: planTime})
+		}
+	}
+
+	return plans
+}
+
 func (lp *Loadpoint) nextActivePlan(maxPower float64, plans []plan) *plan {
 	for i, p := range plans {
 		requiredDuration := lp.getPlanRequiredDuration(float64(p.Soc), maxPower)
@@ -59,6 +89,17 @@ func (lp *Loadpoint) nextActivePlan(maxPower float64, plans []plan) *plan {
 	return nil
 }
 
+func nextFuturePlanTime(now time.Time, plans []plan) time.Time {
+	var res time.Time
+	for _, p := range plans {
+		if now.Before(p.End) && (res.IsZero() || p.End.Before(res)) {
+			res = p.End
+		}
+	}
+
+	return res
+}
+
 // nextVehiclePlan returns the next vehicle plan time, soc, id
 // Returns locked plan if available, otherwise calculates fresh
 func (lp *Loadpoint) nextVehiclePlan() (time.Time, int, int) {
@@ -68,35 +109,20 @@ func (lp *Loadpoint) nextVehiclePlan() (time.Time, int, int) {
 	}
 
 	// calculate fresh plan
-	if v := lp.GetVehicle(); v != nil {
-		var plans []plan
-
-		// static plan
-		if planTime, soc := vehicle.Settings(lp.log, v).GetPlanSoc(); soc != 0 {
-			plans = append(plans, plan{Id: 1, Soc: soc, End: planTime})
-		}
-
-		// repeating plans
-		for index, rp := range vehicle.Settings(lp.log, v).GetRepeatingPlans() {
-			if !rp.Active || len(rp.Weekdays) == 0 {
-				continue
-			}
-
-			planTime, err := util.GetNextOccurrence(rp.Weekdays, rp.Time, rp.Tz)
-			if err != nil {
-				lp.log.DEBUG.Printf("invalid repeating plan: weekdays=%v, time=%s, tz=%s, error=%v", rp.Weekdays, rp.Time, rp.Tz, err)
-				continue
-			}
-
-			plans = append(plans, plan{Id: index + 2, Soc: rp.Soc, End: planTime})
-		}
-
-		// calculate earliest required plan start
-		if plan := lp.nextActivePlan(lp.effectiveMaxPower(), plans); plan != nil {
-			return plan.End, plan.Soc, plan.Id
-		}
+	if plan := lp.nextActivePlan(lp.effectiveMaxPower(), lp.configuredVehiclePlans()); plan != nil {
+		return plan.End, plan.Soc, plan.Id
 	}
+
 	return time.Time{}, 0, 0
+}
+
+func (lp *Loadpoint) departurePowerPlanTime(now time.Time) time.Time {
+	if !lp.socBasedPlanning() {
+		planTime, _ := lp.getPlanEnergy()
+		return planTime
+	}
+
+	return nextFuturePlanTime(now, lp.configuredVehiclePlans())
 }
 
 // EffectivePlanSoc returns the soc target for the current plan
